@@ -11,38 +11,107 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
-
+#include <sstream>
 #include "App.hpp"
 
 using namespace qnn;
 using namespace qnn::tools;
 
+void app::split(std::vector<std::string> &splitString,
+                       const std::string &tokenizedString,
+                       const char separator) {
+  splitString.clear();
+  std::istringstream tokenizedStringStream(tokenizedString);
+  while (!tokenizedStringStream.eof()) {
+    std::string value;
+    getline(tokenizedStringStream, value, separator);
+    if (!value.empty()) {
+      splitString.push_back(value);
+    }
+  }
+}
+
+void app::parseInputFilePaths(std::vector<std::string> &inputFilePaths,
+                                     std::vector<std::string> &paths,
+                                     std::string separator) {
+  for (auto &inputInfo : inputFilePaths) {
+    auto position = inputInfo.find(separator);
+    if (position != std::string::npos) {
+      auto path = inputInfo.substr(position + separator.size());
+      paths.push_back(path);
+    } else {
+      paths.push_back(inputInfo);
+    }
+  }
+}
+
+app::ReadInputListsRetType_t app::readInputLists(
+    std::vector<std::string> inputFileListPaths) {
+  std::vector<std::vector<std::queue<std::string>>> filePathsLists;
+  for (auto const &path : inputFileListPaths) {
+    bool readSuccess;
+    std::vector<std::queue<std::string>> filePathList;
+    std::tie(filePathList, readSuccess) = readInputList(path);
+    if (!readSuccess) {
+      filePathsLists.clear();
+      return std::make_tuple(filePathsLists, false);
+    }
+    filePathsLists.push_back(filePathList);
+  }
+  return std::make_tuple(filePathsLists, true);
+}
+
+app::ReadInputListRetType_t app::readInputList(const std::string inputFileListPath) {
+  std::queue<std::string> lines;
+  std::ifstream fileListStream(inputFileListPath);
+  if (!fileListStream) {
+    QNN_ERROR("Failed to open input file: %s", inputFileListPath.c_str());
+    std::vector<std::queue<std::string>> result;
+    return std::make_tuple(result, false);
+  }
+  std::string fileLine;
+  while (std::getline(fileListStream, fileLine)) {
+    if (fileLine.empty()) continue;
+    lines.push(fileLine);
+  }
+  if (!lines.empty() && lines.front().compare(0, 1, "#") == 0) {
+    lines.pop();
+  }
+  std::string separator = ":=";
+  std::vector<std::queue<std::string>> filePathsList;
+  while (!lines.empty()) {
+    std::vector<std::string> paths{};
+    std::vector<std::string> inputFilePaths;
+    split(inputFilePaths, lines.front(), ' ');
+    parseInputFilePaths(inputFilePaths, paths, separator);
+    filePathsList.reserve(paths.size());
+    for (size_t idx = 0; idx < paths.size(); idx++) {
+      if (idx >= filePathsList.size()) {
+        filePathsList.push_back(std::queue<std::string>());
+      }
+      filePathsList[idx].push(paths[idx]);
+    }
+    lines.pop();
+  }
+  return std::make_tuple(filePathsList, true);
+}
+
 // Default path where the outputs will be stored if outputPath is
 // not supplied.
-const std::string app::QnnSampleApp::s_defaultOutputPath = "./output/";
+const std::string app::QnnApplication::s_defaultOutputPath = "./output/";
 
-app::QnnSampleApp::QnnSampleApp(func::QnnFunctionPointers qnnFunctionPointers,
+app::QnnApplication::QnnApplication(func::QnnFunctionPointers qnnFunctionPointers,
                                        std::string inputListPaths,
                                        std::string opPackagePaths,
-                                       void* backendLibraryHandle,
                                        std::string outputPath,
-                                       bool debug,
                                        iotensor::OutputDataType outputDataType,
                                        iotensor::InputDataType inputDataType,
-                                       app::ProfilingLevel profilingLevel,
-                                       bool dumpOutputs,
-                                       std::string cachedBinaryPath,
-                                       std::string saveBinaryName)
+                                       bool dumpOutputs)
     : m_qnnFunctionPointers(qnnFunctionPointers),
       m_outputPath(outputPath),
-      m_saveBinaryName(saveBinaryName),
-      m_cachedBinaryPath(cachedBinaryPath),
-      m_debug(debug),
       m_outputDataType(outputDataType),
       m_inputDataType(inputDataType),
-      m_profilingLevel(profilingLevel),
       m_dumpOutputs(dumpOutputs),
-      m_backendLibraryHandle(backendLibraryHandle),
       m_isBackendInitialized(false),
       m_isContextCreated(false) {
   split(m_inputListPaths, inputListPaths, ',');
@@ -53,7 +122,7 @@ app::QnnSampleApp::QnnSampleApp(func::QnnFunctionPointers qnnFunctionPointers,
   return;
 }
 
-app::QnnSampleApp::~QnnSampleApp() {
+app::QnnApplication::~QnnApplication() {
   // Free Profiling object if it was created
   if (nullptr != m_profileBackendHandle) {
     QNN_DEBUG("Freeing backend profile object.");
@@ -88,30 +157,23 @@ app::QnnSampleApp::~QnnSampleApp() {
   return;
 }
 
-std::string app::QnnSampleApp::getBackendBuildId() {
-  char* backendBuildId{nullptr};
-  if (QNN_SUCCESS !=
-      m_qnnFunctionPointers.qnnInterface.backendGetBuildId((const char**)&backendBuildId)) {
-    QNN_ERROR("Unable to get build Id from the backend.");
-  }
-  return (backendBuildId == nullptr ? std::string("") : std::string(backendBuildId));
-}
-
-// Initialize QnnSampleApp. Things it does:
+// Initialize QnnApplication. Things it does:
 //  1. Create output directory
 //  2. Read all input list paths provided
 //      during creation.
-app::StatusCode app::QnnSampleApp::initialize() {
+app::StatusCode app::QnnApplication::initialize() {
   // Create Output Directory
   if (m_dumpOutputs && !::pal::FileOp::checkFileExists(m_outputPath) &&
       !pal::Directory::makePath(m_outputPath)) {
-    exitWithMessage("Could not create output directory: " + m_outputPath, EXIT_FAILURE);
+    std::cerr << "Could not create output directory: " + m_outputPath;
+    return StatusCode::FAILURE;
   }
   // Read Input File List
   bool readSuccess;
   std::tie(m_inputFileLists, readSuccess) = readInputLists(m_inputListPaths);
   if (!readSuccess) {
-    exitWithMessage("Could not read input lists", EXIT_FAILURE);
+    std::cerr << "Could not read input lists";
+    return StatusCode::FAILURE;
   }
   // initialize logging in the backend
   if (log::isLogInitialized()) {
@@ -130,38 +192,14 @@ app::StatusCode app::QnnSampleApp::initialize() {
   return StatusCode::SUCCESS;
 }
 
-app::StatusCode app::QnnSampleApp::initializeProfiling() {
-  if (ProfilingLevel::OFF != m_profilingLevel) {
-    QNN_INFO("Profiling turned on; level = %d", m_profilingLevel);
-    if (ProfilingLevel::BASIC == m_profilingLevel) {
-      QNN_INFO("Basic profiling requested. Creating Qnn Profile object.");
-      if (QNN_PROFILE_NO_ERROR !=
-          m_qnnFunctionPointers.qnnInterface.profileCreate(
-              m_backendHandle, QNN_PROFILE_LEVEL_BASIC, &m_profileBackendHandle)) {
-        QNN_WARN("Unable to create profile handle in the backend.");
-        return StatusCode::FAILURE;
-      }
-    } else if (ProfilingLevel::DETAILED == m_profilingLevel) {
-      QNN_INFO("Detailed profiling requested. Creating Qnn Profile object.");
-      if (QNN_PROFILE_NO_ERROR !=
-          m_qnnFunctionPointers.qnnInterface.profileCreate(
-              m_backendHandle, QNN_PROFILE_LEVEL_DETAILED, &m_profileBackendHandle)) {
-        QNN_ERROR("Unable to create profile handle in the backend.");
-        return StatusCode::FAILURE;
-      }
-    }
-  }
-  return StatusCode::SUCCESS;
-}
-
 // Simple method to report error from app to lib.
-int32_t app::QnnSampleApp::reportError(const std::string& err) {
+int32_t app::QnnApplication::reportError(const std::string& err) {
   QNN_ERROR("%s", err.c_str());
   return EXIT_FAILURE;
 }
 
 // Initialize a QnnBackend.
-app::StatusCode app::QnnSampleApp::initializeBackend() {
+app::StatusCode app::QnnApplication::initializeBackend() {
   auto qnnStatus = m_qnnFunctionPointers.qnnInterface.backendCreate(
       m_logHandle, (const QnnBackend_Config_t**)m_backendConfig, &m_backendHandle);
   if (QNN_BACKEND_NO_ERROR != qnnStatus) {
@@ -173,21 +211,10 @@ app::StatusCode app::QnnSampleApp::initializeBackend() {
   return StatusCode::SUCCESS;
 }
 
-// Terminate the backend after done.
-app::StatusCode app::QnnSampleApp::terminateBackend() {
-  if ((m_isBackendInitialized && nullptr != m_qnnFunctionPointers.qnnInterface.backendFree) &&
-      QNN_BACKEND_NO_ERROR != m_qnnFunctionPointers.qnnInterface.backendFree(m_backendHandle)) {
-    QNN_ERROR("Could not terminate backend");
-    return StatusCode::FAILURE;
-  }
-  m_isBackendInitialized = false;
-  return StatusCode::SUCCESS;
-}
-
 // Register op packages and interface providers supplied during
 // object creation. If there are multiple op packages, register
 // them sequentially in the order provided.
-app::StatusCode app::QnnSampleApp::registerOpPackages() {
+app::StatusCode app::QnnApplication::registerOpPackages() {
   const size_t pathIdx              = 0;
   const size_t interfaceProviderIdx = 1;
   for (auto const& opPackagePath : m_opPackagePaths) {
@@ -225,7 +252,7 @@ app::StatusCode app::QnnSampleApp::registerOpPackages() {
 }
 
 // Create a Context in a backend.
-app::StatusCode app::QnnSampleApp::createContext() {
+app::StatusCode app::QnnApplication::createContext() {
   if (QNN_CONTEXT_NO_ERROR != m_qnnFunctionPointers.qnnInterface.contextCreate(
                                   m_backendHandle,
                                   m_deviceHandle,
@@ -239,7 +266,7 @@ app::StatusCode app::QnnSampleApp::createContext() {
 }
 
 // Free context after done.
-app::StatusCode app::QnnSampleApp::freeContext() {
+app::StatusCode app::QnnApplication::freeContext() {
   if (QNN_CONTEXT_NO_ERROR !=
       m_qnnFunctionPointers.qnnInterface.contextFree(m_context, m_profileBackendHandle)) {
     QNN_ERROR("Could not free context");
@@ -255,7 +282,7 @@ app::StatusCode app::QnnSampleApp::freeContext() {
 // m_debug is the option supplied to composeGraphs to
 // say that all intermediate tensors including output tensors
 // are expected to be read by the app.
-app::StatusCode app::QnnSampleApp::composeGraphs() {
+app::StatusCode app::QnnApplication::composeGraphs() {
   auto returnStatus = StatusCode::SUCCESS;
   if (qnn_wrapper_api::ModelError_t::MODEL_NO_ERROR !=
       m_qnnFunctionPointers.composeGraphsFnHandle(
@@ -266,7 +293,7 @@ app::StatusCode app::QnnSampleApp::composeGraphs() {
           m_graphConfigsInfoCount,
           &m_graphsInfo,
           &m_graphsCount,
-          m_debug,
+          false,
           log::getLogCallback(),
           log::getLogLevel())) {
     QNN_ERROR("Failed in composeGraphs()");
@@ -275,7 +302,7 @@ app::StatusCode app::QnnSampleApp::composeGraphs() {
   return returnStatus;
 }
 
-app::StatusCode app::QnnSampleApp::finalizeGraphs() {
+app::StatusCode app::QnnApplication::finalizeGraphs() {
   for (size_t graphIdx = 0; graphIdx < m_graphsCount; graphIdx++) {
     if (QNN_GRAPH_NO_ERROR !=
         m_qnnFunctionPointers.qnnInterface.graphFinalize(
@@ -283,226 +310,13 @@ app::StatusCode app::QnnSampleApp::finalizeGraphs() {
       return StatusCode::FAILURE;
     }
   }
-  if (ProfilingLevel::OFF != m_profilingLevel) {
-    extractBackendProfilingInfo(m_profileBackendHandle);
-  }
+
   auto returnStatus = StatusCode::SUCCESS;
-  if (!m_saveBinaryName.empty()) {
-    QNN_INFO("Before saveBinary(): saving context and metadata.");
-    returnStatus = saveBinary();
-  } else {
-    QNN_DEBUG("m_saveBinaryName is empty()");
-  }
+
   return returnStatus;
 }
 
-app::StatusCode app::QnnSampleApp::createFromBinary() {
-  if (m_cachedBinaryPath.empty()) {
-    QNN_ERROR("No name provided to read binary file from.");
-    return StatusCode::FAILURE;
-  }
-  if (nullptr == m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate ||
-      nullptr == m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo ||
-      nullptr == m_qnnFunctionPointers.qnnSystemInterface.systemContextFree) {
-    QNN_ERROR("QNN System function pointers are not populated.");
-    return StatusCode::FAILURE;
-  }
-  uint64_t bufferSize{0};
-  std::shared_ptr<uint8_t> buffer{nullptr};
-  // read serialized binary into a byte buffer
-  tools::datautil::StatusCode status{tools::datautil::StatusCode::SUCCESS};
-  std::tie(status, bufferSize) = tools::datautil::getFileSize(m_cachedBinaryPath);
-  if (0 == bufferSize) {
-    QNN_ERROR("Received path to an empty file. Nothing to deserialize.");
-    return StatusCode::FAILURE;
-  }
-  buffer = std::shared_ptr<uint8_t>(new uint8_t[bufferSize], std::default_delete<uint8_t[]>());
-  if (!buffer) {
-    QNN_ERROR("Failed to allocate memory.");
-    return StatusCode::FAILURE;
-  }
-
-  status = tools::datautil::readBinaryFromFile(
-      m_cachedBinaryPath, reinterpret_cast<uint8_t*>(buffer.get()), bufferSize);
-  if (status != tools::datautil::StatusCode::SUCCESS) {
-    QNN_ERROR("Failed to read binary data.");
-    return StatusCode::FAILURE;
-  }
-
-  // inspect binary info
-  auto returnStatus = StatusCode::SUCCESS;
-  QnnSystemContext_Handle_t sysCtxHandle{nullptr};
-  if (QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextCreate(&sysCtxHandle)) {
-    QNN_ERROR("Could not create system handle.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  const QnnSystemContext_BinaryInfo_t* binaryInfo{nullptr};
-  Qnn_ContextBinarySize_t binaryInfoSize{0};
-  if (StatusCode::SUCCESS == returnStatus &&
-      QNN_SUCCESS != m_qnnFunctionPointers.qnnSystemInterface.systemContextGetBinaryInfo(
-                         sysCtxHandle,
-                         static_cast<void*>(buffer.get()),
-                         bufferSize,
-                         &binaryInfo,
-                         &binaryInfoSize)) {
-    QNN_ERROR("Failed to get context binary info");
-    returnStatus = StatusCode::FAILURE;
-  }
-
-  // fill GraphInfo_t based on binary info
-  if (StatusCode::SUCCESS == returnStatus &&
-      !m_ioTensor.copyMetadataToGraphsInfo(binaryInfo, m_graphsInfo, m_graphsCount)) {
-    QNN_ERROR("Failed to copy metadata.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  m_qnnFunctionPointers.qnnSystemInterface.systemContextFree(sysCtxHandle);
-  sysCtxHandle = nullptr;
-
-  if (StatusCode::SUCCESS == returnStatus &&
-      nullptr == m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary) {
-    QNN_ERROR("contextCreateFromBinaryFnHandle is nullptr.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  if (StatusCode::SUCCESS == returnStatus &&
-      m_qnnFunctionPointers.qnnInterface.contextCreateFromBinary(
-          m_backendHandle,
-          m_deviceHandle,
-          (const QnnContext_Config_t**)&m_contextConfig,
-          static_cast<void*>(buffer.get()),
-          bufferSize,
-          &m_context,
-          m_profileBackendHandle)) {
-    QNN_ERROR("Could not create context from binary.");
-    returnStatus = StatusCode::FAILURE;
-  }
-  if (ProfilingLevel::OFF != m_profilingLevel) {
-    extractBackendProfilingInfo(m_profileBackendHandle);
-  }
-  m_isContextCreated = true;
-  if (StatusCode::SUCCESS == returnStatus) {
-    for (size_t graphIdx = 0; graphIdx < m_graphsCount; graphIdx++) {
-      if (nullptr == m_qnnFunctionPointers.qnnInterface.graphRetrieve) {
-        QNN_ERROR("graphRetrieveFnHandle is nullptr.");
-        returnStatus = StatusCode::FAILURE;
-        break;
-      }
-      if (QNN_SUCCESS !=
-          m_qnnFunctionPointers.qnnInterface.graphRetrieve(
-              m_context, (*m_graphsInfo)[graphIdx].graphName, &((*m_graphsInfo)[graphIdx].graph))) {
-        QNN_ERROR("Unable to retrieve graph handle for graph Idx: %d", graphIdx);
-        returnStatus = StatusCode::FAILURE;
-      }
-    }
-  }
-  if (StatusCode::SUCCESS != returnStatus) {
-    QNN_DEBUG("Cleaning up graph Info structures.");
-    qnn_wrapper_api::freeGraphsInfo(&m_graphsInfo, m_graphsCount);
-  }
-  return returnStatus;
-}
-
-app::StatusCode app::QnnSampleApp::saveBinary() {
-  if (m_saveBinaryName.empty()) {
-    QNN_ERROR("No name provided to save binary file.");
-    return StatusCode::FAILURE;
-  }
-  if (nullptr == m_qnnFunctionPointers.qnnInterface.contextGetBinarySize ||
-      nullptr == m_qnnFunctionPointers.qnnInterface.contextGetBinary) {
-    QNN_ERROR("contextGetBinarySizeFnHandle or contextGetBinaryFnHandle is nullptr.");
-    return StatusCode::FAILURE;
-  }
-  uint64_t requiredBufferSize{0};
-  if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextGetBinarySize(m_context, &requiredBufferSize)) {
-    QNN_ERROR("Could not get the required binary size.");
-    return StatusCode::FAILURE;
-  }
-  std::unique_ptr<uint8_t[]> saveBuffer(new uint8_t[requiredBufferSize]);
-  if (nullptr == saveBuffer) {
-    QNN_ERROR("Could not allocate buffer to save binary.");
-    return StatusCode::FAILURE;
-  }
-  uint64_t writtenBufferSize{0};
-  if (QNN_CONTEXT_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.contextGetBinary(m_context,
-                                                          reinterpret_cast<void*>(saveBuffer.get()),
-                                                          requiredBufferSize,
-                                                          &writtenBufferSize)) {
-    QNN_ERROR("Could not get binary.");
-    return StatusCode::FAILURE;
-  }
-  if (requiredBufferSize < writtenBufferSize) {
-    QNN_ERROR(
-        "Illegal written buffer size [%d] bytes. Cannot exceed allocated memory of [%d] bytes",
-        writtenBufferSize,
-        requiredBufferSize);
-    return StatusCode::FAILURE;
-  }
-  auto dataUtilStatus = tools::datautil::writeBinaryToFile(
-      m_outputPath, m_saveBinaryName + ".bin", (uint8_t*)saveBuffer.get(), writtenBufferSize);
-  if (tools::datautil::StatusCode::SUCCESS != dataUtilStatus) {
-    QNN_ERROR("Error while writing binary to file.");
-    return StatusCode::FAILURE;
-  }
-  return StatusCode::SUCCESS;
-}
-
-app::StatusCode app::QnnSampleApp::extractBackendProfilingInfo(
-    Qnn_ProfileHandle_t profileHandle) {
-  if (nullptr == m_profileBackendHandle) {
-    QNN_ERROR("Backend Profile handle is nullptr; may not be initialized.");
-    return StatusCode::FAILURE;
-  }
-  const QnnProfile_EventId_t* profileEvents{nullptr};
-  uint32_t numEvents{0};
-  if (QNN_PROFILE_NO_ERROR != m_qnnFunctionPointers.qnnInterface.profileGetEvents(
-                                  profileHandle, &profileEvents, &numEvents)) {
-    QNN_ERROR("Failure in profile get events.");
-    return StatusCode::FAILURE;
-  }
-  QNN_DEBUG("ProfileEvents: [%p], numEvents: [%d]", profileEvents, numEvents);
-  for (size_t event = 0; event < numEvents; event++) {
-    extractProfilingEvent(*(profileEvents + event));
-    extractProfilingSubEvents(*(profileEvents + event));
-  }
-  return StatusCode::SUCCESS;
-}
-
-app::StatusCode app::QnnSampleApp::extractProfilingSubEvents(
-    QnnProfile_EventId_t profileEventId) {
-  const QnnProfile_EventId_t* profileSubEvents{nullptr};
-  uint32_t numSubEvents{0};
-  if (QNN_PROFILE_NO_ERROR != m_qnnFunctionPointers.qnnInterface.profileGetSubEvents(
-                                  profileEventId, &profileSubEvents, &numSubEvents)) {
-    QNN_ERROR("Failure in profile get sub events.");
-    return StatusCode::FAILURE;
-  }
-  QNN_DEBUG("ProfileSubEvents: [%p], numSubEvents: [%d]", profileSubEvents, numSubEvents);
-  for (size_t subEvent = 0; subEvent < numSubEvents; subEvent++) {
-    extractProfilingEvent(*(profileSubEvents + subEvent));
-    extractProfilingSubEvents(*(profileSubEvents + subEvent));
-  }
-  return StatusCode::SUCCESS;
-}
-
-app::StatusCode app::QnnSampleApp::extractProfilingEvent(
-    QnnProfile_EventId_t profileEventId) {
-  QnnProfile_EventData_t eventData;
-  if (QNN_PROFILE_NO_ERROR !=
-      m_qnnFunctionPointers.qnnInterface.profileGetEventData(profileEventId, &eventData)) {
-    QNN_ERROR("Failure in profile get event type.");
-    return StatusCode::FAILURE;
-  }
-  QNN_DEBUG("Printing Event Info - Event Type: [%d], Event Value: [%" PRIu64
-            "], Event Identifier: [%s], Event Unit: [%d]",
-            eventData.type,
-            eventData.value,
-            eventData.identifier,
-            eventData.unit);
-  return StatusCode::SUCCESS;
-}
-
-app::StatusCode app::QnnSampleApp::verifyFailReturnStatus(Qnn_ErrorHandle_t errCode) {
+app::StatusCode app::QnnApplication::verifyFailReturnStatus(Qnn_ErrorHandle_t errCode) {
   auto returnStatus = app::StatusCode::FAILURE;
   switch (errCode) {
     case QNN_COMMON_ERROR_SYSTEM_COMMUNICATION:
@@ -520,7 +334,7 @@ app::StatusCode app::QnnSampleApp::verifyFailReturnStatus(Qnn_ErrorHandle_t errC
   return returnStatus;
 }
 
-app::StatusCode app::QnnSampleApp::isDevicePropertySupported() {
+app::StatusCode app::QnnApplication::isDevicePropertySupported() {
   if (nullptr != m_qnnFunctionPointers.qnnInterface.propertyHasCapability) {
     auto qnnStatus =
         m_qnnFunctionPointers.qnnInterface.propertyHasCapability(QNN_PROPERTY_GROUP_DEVICE);
@@ -535,7 +349,7 @@ app::StatusCode app::QnnSampleApp::isDevicePropertySupported() {
   return StatusCode::SUCCESS;
 }
 
-app::StatusCode app::QnnSampleApp::createDevice() {
+app::StatusCode app::QnnApplication::createDevice() {
   if (nullptr != m_qnnFunctionPointers.qnnInterface.deviceCreate) {
     auto qnnStatus =
         m_qnnFunctionPointers.qnnInterface.deviceCreate(m_logHandle, nullptr, &m_deviceHandle);
@@ -547,7 +361,7 @@ app::StatusCode app::QnnSampleApp::createDevice() {
   return StatusCode::SUCCESS;
 }
 
-app::StatusCode app::QnnSampleApp::freeDevice() {
+app::StatusCode app::QnnApplication::freeDevice() {
   if (nullptr != m_qnnFunctionPointers.qnnInterface.deviceFree) {
     auto qnnStatus = m_qnnFunctionPointers.qnnInterface.deviceFree(m_deviceHandle);
     if (QNN_SUCCESS != qnnStatus && QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != qnnStatus) {
@@ -561,7 +375,7 @@ app::StatusCode app::QnnSampleApp::freeDevice() {
 // executeGraphs() that is currently used by qnn-sample-app's main.cpp.
 // This function runs all the graphs present in model.so by reading
 // inputs from input_list based files and writes output to .raw files.
-app::StatusCode app::QnnSampleApp::executeGraphs() {
+app::StatusCode app::QnnApplication::executeGraphs() {
   auto returnStatus = StatusCode::SUCCESS;
   for (size_t graphIdx = 0; graphIdx < m_graphsCount; graphIdx++) {
     QNN_DEBUG("Starting execution for graphIdx: %d", graphIdx);

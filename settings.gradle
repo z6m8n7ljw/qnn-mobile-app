@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "QnnSampleApp"
+rootProject.name = "QnnApplication"
 include ':app'

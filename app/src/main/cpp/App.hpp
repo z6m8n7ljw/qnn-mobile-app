@@ -18,13 +18,29 @@
 #include "PAL/FileOp.hpp"
 #include "PAL/Path.hpp"
 #include "PAL/StringOp.hpp"
+#include "QnnTypeMacros.hpp"
 #include "QnnWrapperFunc.hpp"
 #include "QnnWrapperUtils.hpp"
-#include "AppUtils.hpp"
 
 namespace qnn {
 namespace tools {
 namespace app {
+
+using ReadInputListRetType_t = std::tuple<std::vector<std::queue<std::string>>, bool>;
+
+ReadInputListRetType_t readInputList(std::string inputFileListPath);
+
+using ReadInputListsRetType_t = std::tuple<std::vector<std::vector<std::queue<std::string>>>, bool>;
+
+ReadInputListsRetType_t readInputLists(std::vector<std::string> inputFileListPath);
+
+void parseInputFilePaths(std::vector<std::string> &inputFilePaths,
+                         std::vector<std::string> &paths,
+                         std::string separator);
+
+void split(std::vector<std::string> &splitString,
+           const std::string &tokenizedString,
+           const char separator);
 
 enum class StatusCode {
   SUCCESS,
@@ -35,20 +51,15 @@ enum class StatusCode {
   QNN_FEATURE_UNSUPPORTED
 };
 
-class QnnSampleApp {
+class QnnApplication {
  public:
-  QnnSampleApp(func::QnnFunctionPointers qnnFunctionPointers,
+  QnnApplication(func::QnnFunctionPointers qnnFunctionPointers,
                std::string inputListPaths,
                std::string opPackagePaths,
-               void *backendHandle,
                std::string outputPath                  = s_defaultOutputPath,
-               bool debug                              = false,
                iotensor::OutputDataType outputDataType = iotensor::OutputDataType::FLOAT_ONLY,
                iotensor::InputDataType inputDataType   = iotensor::InputDataType::FLOAT,
-               ProfilingLevel profilingLevel           = ProfilingLevel::OFF,
-               bool dumpOutputs                        = false,
-               std::string cachedBinaryPath            = "",
-               std::string saveBinaryName              = "");
+               bool dumpOutputs                        = false);
 
   // @brief Print a message to STDERR then return a nonzero
   //  exit status.
@@ -68,21 +79,7 @@ class QnnSampleApp {
 
   StatusCode registerOpPackages();
 
-  StatusCode createFromBinary();
-
-  StatusCode saveBinary();
-
   StatusCode freeContext();
-
-  StatusCode terminateBackend();
-
-  StatusCode freeGraphs();
-
-  Qnn_ContextHandle_t getContext();
-
-  StatusCode initializeProfiling();
-
-  std::string getBackendBuildId();
 
   StatusCode isDevicePropertySupported();
 
@@ -92,15 +89,9 @@ class QnnSampleApp {
 
   StatusCode verifyFailReturnStatus(Qnn_ErrorHandle_t errCode);
 
-  virtual ~QnnSampleApp();
+  virtual ~QnnApplication();
 
  private:
-  StatusCode extractBackendProfilingInfo(Qnn_ProfileHandle_t profileHandle);
-
-  StatusCode extractProfilingSubEvents(QnnProfile_EventId_t profileEventId);
-
-  StatusCode extractProfilingEvent(QnnProfile_EventId_t profileEventId);
-
   static const std::string s_defaultOutputPath;
 
   func::QnnFunctionPointers m_qnnFunctionPointers;
@@ -108,19 +99,14 @@ class QnnSampleApp {
   std::vector<std::vector<std::queue<std::string>>> m_inputFileLists;
   std::vector<std::string> m_opPackagePaths;
   std::string m_outputPath;
-  std::string m_saveBinaryName;
-  std::string m_cachedBinaryPath;
   QnnBackend_Config_t **m_backendConfig = nullptr;
   Qnn_ContextHandle_t m_context         = nullptr;
   QnnContext_Config_t **m_contextConfig = nullptr;
-  bool m_debug;
   iotensor::OutputDataType m_outputDataType;
   iotensor::InputDataType m_inputDataType;
-  ProfilingLevel m_profilingLevel;
   bool m_dumpOutputs;
   qnn_wrapper_api::GraphInfo_t **m_graphsInfo;
   uint32_t m_graphsCount;
-  void *m_backendLibraryHandle;
   iotensor::IOTensor m_ioTensor;
   bool m_isBackendInitialized;
   bool m_isContextCreated;
