@@ -1,4 +1,4 @@
-package com.example.qnnsampleapp;
+package com.example.qnnmobileapp;
 
 import org.junit.Test;
 

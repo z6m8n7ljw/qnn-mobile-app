@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 
 # Define project name
-project(qnn-sample-app)
+project(qnn-mobile-app)
 
 # Set the C++ standard and optimization level
 set(CMAKE_CXX_STANDARD 11)
@@ -27,10 +27,10 @@ file(GLOB_RECURSE SRC_FILES
         "Wrapper/*.cpp"
         )
 
-add_executable(qnn-sample-app ${SRC_FILES})
+add_executable(qnn-mobile-app ${SRC_FILES})
 
 # Link libraries
-target_link_libraries(qnn-sample-app
+target_link_libraries(qnn-mobile-app
         GLESv2
         EGL
         dl

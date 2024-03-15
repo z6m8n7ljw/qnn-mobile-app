@@ -372,7 +372,7 @@ app::StatusCode app::QnnApplication::freeDevice() {
   return StatusCode::SUCCESS;
 }
 
-// executeGraphs() that is currently used by qnn-sample-app's main.cpp.
+// executeGraphs() that is currently used by qnn-mobile-app's main.cpp.
 // This function runs all the graphs present in model.so by reading
 // inputs from input_list based files and writes output to .raw files.
 app::StatusCode app::QnnApplication::executeGraphs() {
