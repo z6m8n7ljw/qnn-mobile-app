@@ -26,6 +26,12 @@ static constexpr bool WITH_PREPARE = false;
 static constexpr bool WITH_PREPARE = true;
 #endif
 
+#ifdef DEBUG_REGISTRY
+constexpr bool DebugRegistry = true;
+#else
+constexpr bool DebugRegistry = false;
+#endif
+
 #ifdef __hexagon__
 constexpr bool IsPlatformHexagon = true;
 #else

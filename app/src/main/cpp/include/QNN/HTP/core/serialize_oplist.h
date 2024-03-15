@@ -192,6 +192,10 @@ class OpSerHandle {
 
   public:
     inline ~OpSerHandle() { owner.spcl_done(*this); }
+    OpSerHandle(const OpSerHandle &) = delete;
+    OpSerHandle &operator=(const OpSerHandle &) = delete;
+    OpSerHandle(OpSerHandle &&) = delete;
+    OpSerHandle &operator=(OpSerHandle &&) = delete;
     //////////////////////////////
     // add literal u32 values
     // (1) generic ptr/offs

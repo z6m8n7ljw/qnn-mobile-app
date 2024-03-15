@@ -1,6 +1,6 @@
 //==============================================================================
 //
-//  Copyright (c) 2020-2022 Qualcomm Technologies, Inc.
+//  Copyright (c) 2020-2023 Qualcomm Technologies, Inc.
 //  All Rights Reserved.
 //  Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -24,6 +24,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define QNN_CPUOPPACKAGE_TENSOR_DATA_FORMAT_FLAT_BUFFER 0
 
 /**
  * @brief A value representing a tensor data format.
@@ -133,6 +135,7 @@ typedef struct {
   uint32_t* maxDimensions;
   uint32_t* currentDimensions;
   void* data;
+  Qnn_QuantizeParams_t quantizeParams;
 } QnnCpuOpPackage_Tensor_t;
 
 // clang-format off
@@ -144,7 +147,8 @@ typedef struct {
     0,                                  /*rank*/              \
     NULL,                               /*maxDimensions*/     \
     NULL,                               /*currentDimensions*/ \
-    NULL                                /*data*/              \
+    NULL,                               /*data*/              \
+    QNN_QUANTIZE_PARAMS_INIT            /*quantizeParams*/    \
   }
 // clang-format on
 

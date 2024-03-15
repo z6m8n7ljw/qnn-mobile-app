@@ -25,7 +25,7 @@
 #define QNN_OP_PACKAGE_NAME_QTI_AISW "qti.aisw"
 
 #define QNN_OPSET_VERSION_MAJOR 1
-#define QNN_OPSET_VERSION_MINOR 25
+#define QNN_OPSET_VERSION_MINOR 28
 #define QNN_OPSET_VERSION_PATCH 0
 
 #define QNN_OP_ARGB_TO_RGB                      "ArgbToRgb"
@@ -362,10 +362,15 @@
 #define QNN_OP_GRU_DIRECTION_FORWARD         0
 #define QNN_OP_GRU_DIRECTION_REVERSE         1
 #define QNN_OP_GRU_PARAM_LINEAR_BEFORE_RESET "linear_before_reset"
+#define QNN_OP_GRU_PARAM_TIME_MAJOR          "time_major"
 
 #define QNN_OP_HARD_SWISH "HardSwish"
 
 #define QNN_OP_HEAT_MAP_MAX_KEY_POINT "HeatMapMaxKeyPoint"
+
+#define QNN_OP_IF                  "If"
+#define QNN_OP_IF_PARAM_THEN_GRAPH "then_graph"
+#define QNN_OP_IF_PARAM_ELSE_GRAPH "else_graph"
 
 #define QNN_OP_IMAGE_PROJECTION_TRANSFORM                                     "ImageProjectionTransform"
 #define QNN_OP_IMAGE_PROJECTION_TRANSFORM_PARAM_INTERPOLATION_MODE            "interpolation_mode"
@@ -416,12 +421,18 @@
 #define QNN_OP_LSTM_DIRECTION_REVERSE           1
 #define QNN_OP_LSTM_PARAM_CELL_CLIP_THRESHOLD   "cell_clip_threshold"
 #define QNN_OP_LSTM_PARAM_OUTPUT_CLIP_THRESHOLD "output_clip_threshold"
+#define QNN_OP_LSTM_PARAM_TIME_MAJOR            "time_major"
 #define QNN_OP_LSTM_PARAM_INPUT_GATE_QSCALE     "input_gate_qscale"
 #define QNN_OP_LSTM_PARAM_FORGET_GATE_QSCALE    "forget_gate_qscale"
 #define QNN_OP_LSTM_PARAM_CELL_GATE_QSCALE      "cell_gate_qscale"
 #define QNN_OP_LSTM_PARAM_OUTPUT_GATE_QSCALE    "output_gate_qscale"
 #define QNN_OP_LSTM_PARAM_HIDDEN_STATE_OFFSET   "hidden_state_offset"
 #define QNN_OP_LSTM_PARAM_HIDDEN_STATE_QSCALE   "hidden_state_qscale"
+
+#define QNN_OP_MASKED_SOFTMAX                   "MaskedSoftmax"
+#define QNN_OP_MASKED_SOFTMAX_PARAM_MODE        "mode"
+#define QNN_OP_MASKED_SOFTMAX_MODE_UNCOMPRESSED 0
+#define QNN_OP_MASKED_SOFTMAX_MODE_COMPRESSED   1
 
 #define QNN_OP_MOMENTS                 "Moments"
 #define QNN_OP_MOMENTS_PARAM_AXES      "axes"
@@ -551,11 +562,13 @@
 #define QNN_OP_RESIZE_PARAM_INTERPOLATION_MODE               "interpolation_mode"
 #define QNN_OP_RESIZE_INTERPOLATION_MODE_NEAREST             0
 #define QNN_OP_RESIZE_INTERPOLATION_MODE_LINEAR              1
+#define QNN_OP_RESIZE_INTERPOLATION_MODE_CUBIC               2
 #define QNN_OP_RESIZE_PARAM_NEAREST_MODE                     "nearest_mode"
 #define QNN_OP_RESIZE_NEAREST_MODE_ROUND_PREFER_FLOOR        0
 #define QNN_OP_RESIZE_NEAREST_MODE_ROUND_PREFER_CEIL         1
 #define QNN_OP_RESIZE_NEAREST_MODE_FLOOR                     2
 #define QNN_OP_RESIZE_NEAREST_MODE_CEIL                      3
+#define QNN_OP_RESIZE_PARAM_CUBIC_COEFF                      "cubic_coeff"
 
 #define QNN_OP_RESIZE_BILINEAR                          "ResizeBilinear"
 #define QNN_OP_RESIZE_BILINEAR_PARAM_ALIGN_CORNERS      "align_corners"

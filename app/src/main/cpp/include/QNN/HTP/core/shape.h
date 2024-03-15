@@ -124,7 +124,7 @@ template <size_t Rank> struct Shape : public hnnx::ShapeFlags {
     API_EXPORT void serialize(hnnx::Serializer &sctx) const;
 
   protected:
-    unsigned shplen() const { return (char const *)&pad[0] + Rank - (char const *)this; }
+    API_EXPORT unsigned shplen() const { return (char const *)&pad[0] + Rank - (char const *)this; }
 };
 // FIXME: this is incomplete since it doesn't have Shape<Rank> methods
 // This doesn't have flags either, so there can be only one distinct instance of Shape<0>.

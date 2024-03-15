@@ -26,7 +26,7 @@
 
 // HTP API Version values
 #define QNN_HTP_API_VERSION_MAJOR 5
-#define QNN_HTP_API_VERSION_MINOR 14
+#define QNN_HTP_API_VERSION_MINOR 18
 #define QNN_HTP_API_VERSION_PATCH 0
 
 // clang-format off
@@ -50,7 +50,7 @@
 
 // DSP Context blob Version values
 #define QNN_HTP_CONTEXT_BLOB_VERSION_MAJOR 3
-#define QNN_HTP_CONTEXT_BLOB_VERSION_MINOR 0
+#define QNN_HTP_CONTEXT_BLOB_VERSION_MINOR 1
 #define QNN_HTP_CONTEXT_BLOB_VERSION_PATCH 0
 
 /* ==== CDSP Security Library Versioning ==== */
@@ -70,6 +70,15 @@
 #define QNN_HTP_V73_NATIVE_LIB_SECURITY_VERSION_MAJOR 1
 #define QNN_HTP_V73_NATIVE_LIB_SECURITY_VERSION_MINOR 0
 #define QNN_HTP_V73_NATIVE_LIB_SECURITY_VERSION_PATCH 0
+
+/* V75 Security Issues:
+ * List of security issues fixed for V75 and the fixed version
+ * */
+// HTP Native library version values for V75
+#define QNN_HTP_V75_NATIVE_LIB_SECURITY_VERSION_MAJOR 1
+#define QNN_HTP_V75_NATIVE_LIB_SECURITY_VERSION_MINOR 0
+#define QNN_HTP_V75_NATIVE_LIB_SECURITY_VERSION_PATCH 0
+
 
 
 

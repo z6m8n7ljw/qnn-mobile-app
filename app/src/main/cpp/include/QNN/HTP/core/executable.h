@@ -1,6 +1,6 @@
 //==============================================================================
 //
-// Copyright (c) 2018 Qualcomm Technologies, Inc.
+// Copyright (c) 2018-2023 Qualcomm Technologies, Inc.
 // All Rights Reserved.
 // Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -10,7 +10,7 @@
 
 #include "graph_status.h"
 #include <tuple>
-#include <stdlib.h>
+#include <cstdlib>
 #include <stdint.h>
 
 class Graph;
@@ -37,20 +37,27 @@ typedef volatile uint32_t *counter_nc_t;
 	 *
 	 * This allows us to look into the structures to find out more concrete addresses.
 	 */
-class Executable { // Almost certainly, don't make this a parent class!
+class API_EXPORT Executable { // Almost certainly, don't make this a parent class!
   public:
     using FuncType = GraphStatus (*)(const void *, Graph *);
     using ItemType = std::pair<FuncType, const void *>;
-    using ExecType = std::tuple<FuncType, const void *, counter_t, counter_t>;
+    struct alignas(16) ExecType { // alignment keeps it all in same cache line on hexagon.
+        FuncType funcp;
+        const void *datap;
+        counter_t gate_cp;
+        counter_t done_cp;
+        ExecType(FuncType const f, const void *const d, counter_t const gc, counter_t const dc)
+            : funcp(f), datap(d), gate_cp(gc), done_cp(dc)
+        {
+        }
+    };
     virtual GraphStatus execute(Graph *g) const noexcept = 0; // Needs to be at vtable offset zero!!!
-    API_EXPORT virtual ItemType
-    compile(Graph &graph_in) const; // Turn this Executable into a function pointer and data pointer.
+    virtual ItemType compile(Graph &graph_in) const; // Turn this Executable into a function pointer and data pointer.
     virtual ~Executable() = default;
-    API_EXPORT static const size_t *vtable(Executable const *); // helper function: get vtable
-    API_EXPORT static const size_t
-    execute_address(Executable const *); // helper function: get address of execute() function
+    static const size_t *vtable(Executable const *); // helper function: get vtable
+    static const size_t execute_address(Executable const *); // helper function: get address of execute() function
 
-    API_EXPORT static GraphStatus no_op_function(const void *, Graph *); // just returns Success.
+    static GraphStatus no_op_function(const void *, Graph *); // just returns Success.
     static ItemType null_item() { return {no_op_function, nullptr}; }
 };
 
@@ -58,15 +65,11 @@ class Executable { // Almost certainly, don't make this a parent class!
 
 inline GraphStatus execute_item(Graph *graph_in, Executable::ExecType const &itemt)
 {
-    return (*std::get<0>(itemt))(std::get<1>(itemt), graph_in);
-}
-
-inline Executable::ExecType item_to_exec_type(Executable::ItemType &&item)
-{
-    return Executable::ExecType(item.first, item.second, nullptr, nullptr);
+    return (*itemt.funcp)(itemt.datap, graph_in);
 }
 
 }; // namespace hnnx
+
 POP_VISIBILITY()
 
 #endif

@@ -1,6 +1,6 @@
 //==============================================================================
 //
-// Copyright (c) 2020 Qualcomm Technologies, Inc.
+// Copyright (c) 2020-2023 Qualcomm Technologies, Inc.
 // All Rights Reserved.
 // Confidential and Proprietary - Qualcomm Technologies, Inc.
 //
@@ -17,6 +17,7 @@
 #include "type_name.h"
 
 class Graph;
+class Tensor;
 template <typename P> class Vector;
 
 namespace hnnx {
@@ -205,18 +206,6 @@ template <size_t N, typename T> constexpr static inline const std::array<T, N> p
     return ptr_to_stdarray_helper<N, T>(carray, std::make_index_sequence<N>{});
 }
 
-template <typename T> using is_boxed_val = std::integral_constant<bool, !std::is_same<T, unboxed_t<T>>::value>;
-
-template <typename T> using is_unboxed_val = std::integral_constant<bool, std::is_same<T, unboxed_t<T>>::value>;
-
-template <typename T> using is_boxed_const = std::integral_constant<bool, is_const<unboxed_t<T>>::value>;
-
-template <typename T> using is_boxed_nonconst = std::integral_constant<bool, is_not_const<unboxed_t<T>>::value>;
-
-template <typename T> using is_const_graph = std::integral_constant<bool, std::is_same<const Graph, T>::value>;
-
-template <typename T> using is_not_const_graph = std::integral_constant<bool, !std::is_same<const Graph, T>::value>;
-
 /*
  * These are kind of like add_pointer / add_pointer_t
  */
@@ -226,24 +215,118 @@ template <typename T> struct add_uniqueptr {
 };
 template <class T> using add_uniqueptr_t = typename add_uniqueptr<T>::type;
 
-template <class T> using add_nothing_t = T;
+//////////
+// Op function parameter categories
+// The order of these is important: The operands must
+// appear in order of increasing category. Also, no two operands
+// can have the same category, unless it's tensor_out or tensor_in
+// (see ArgsAreOK below).
+enum class OpArgCategory { //
+    invalid, // none of the below
+    tensor_out, // T &, where T is a Tensor subclass
+    vararg_out, // Vector<T*> const &; or Vector<T*>
+    tensor_in, // T const &, where T is a Tensor subclass.
+    vararg_in, // Vector<T const*> const &; or Vector<T*>
+    graph_ref, // Graph const &
+};
 
+template <typename T> struct OpArgCat {
+    static constexpr OpArgCategory value = OpArgCategory::invalid;
+};
+
+// T& or T const &; Ok if  T subclass of Tensor;
+template <typename T> struct OpArgCat<T &> {
+    static constexpr OpArgCategory value = !std::is_base_of_v<Tensor, T> ? OpArgCategory::invalid
+                                           : std::is_const_v<T>          ? OpArgCategory::tensor_in
+                                                                         : OpArgCategory::tensor_out;
+};
+// Graph const & ok
+template <> struct OpArgCat<Graph const &> {
+    static constexpr OpArgCategory value = OpArgCategory::graph_ref;
+};
+
+// Also: Vector<T*> is ok as pass-by-value or pass-by-const-ref.
+// Implementation of Vector<P> is just {P const *base, size_t n}
+//
+template <typename T> struct OpArgCat<Vector<T *> const &> {
+    static constexpr OpArgCategory value = !std::is_base_of_v<Tensor, T> ? OpArgCategory::invalid
+                                           : std::is_const_v<T>          ? OpArgCategory::vararg_in
+                                                                         : OpArgCategory::vararg_out;
+};
+template <typename T> struct OpArgCat<Vector<T *>> : public OpArgCat<Vector<T *> const &> {
+};
+
+//////////
+// Check all the 'category':
+//  - none can be 'invalid'
+//  - none can be < previous category
+//  - may only be equal to previous category if tensor_in or tensor_out.
+template <typename... Args> inline constexpr bool ArgsAreOK()
+{
+    constexpr unsigned N = sizeof...(Args);
+    if constexpr (N > 0) {
+        constexpr OpArgCategory cats[N] = {OpArgCat<Args>::value...};
+        if (cats[0] == OpArgCategory::invalid) return false;
+        // any subsequent 'invalid' will fail to >= previous.
+        for (unsigned i = 1; i < N; i++) {
+            OpArgCategory cat = cats[i];
+            if (cat < cats[i - 1]) return false;
+            if (cat == cats[i - 1] && cat != OpArgCategory::tensor_in && cat != OpArgCategory::tensor_out) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+//////////
+// ArgTupFilter_t<CAT, Args...> -> tuple<Args...> with only ops of given cat removed.
+// Also, refs are removed.
+//
+template <typename T1, typename TUP> struct TupleBuild {
+};
+template <typename T1, typename... Types> struct TupleBuild<T1, std::tuple<Types...>> {
+    using type = std::tuple<T1, Types...>;
+};
+
+template <OpArgCategory CAT, typename... Types> struct ArgTupFilterHelper {
+};
+
+template <OpArgCategory CAT, typename T1, typename... Types> struct ArgTupFilterHelper<CAT, T1, Types...> {
+  private:
+    using tail = typename ArgTupFilterHelper<CAT, Types...>::type;
+
+  public:
+    using type = std::conditional_t<OpArgCat<T1>::value == CAT, // is T1 included?
+                                    typename TupleBuild<std::remove_reference_t<T1>, tail>::type, tail>;
+};
+
+// just one...
+template <OpArgCategory CAT, typename T1> struct ArgTupFilterHelper<CAT, T1> {
+    using type = std::conditional_t<OpArgCat<T1>::value == CAT, std::tuple<std::remove_reference_t<T1>>, std::tuple<>>;
+};
+
+// empty case...
+template <OpArgCategory CAT> struct ArgTupFilterHelper<CAT> {
+    using type = std::tuple<>;
+};
+
+template <OpArgCategory CAT, typename... Types> using ArgTupFilter_t = typename ArgTupFilterHelper<CAT, Types...>::type;
+
+//////////
 template <typename R> struct ArgsTuples;
 
 template <typename R, typename... Args> struct ArgsTuples<R(Args...)> {
-    static_assert((((std::is_lvalue_reference<Args>::value) || (std::is_rvalue_reference<Args>::value)) && ...),
-                  "Op Arguments should be by reference");
+    static_assert(ArgsAreOK<Args...>(), "Improper Op arg parameters");
     using all_args_tuple = std::tuple<Args...>; // all the args
-    using noref_args_tup = TupMap_t<std::remove_reference_t,
-                                    all_args_tuple>; // without references
-    using const_graph_tup = TupFilter_t<is_const_graph, noref_args_tup>; // reference to graph?
-    using nonconst_graph_tup = TupFilter_t<is_not_const_graph,
-                                           noref_args_tup>; // not reference to graph
-    using fixed_args = TupFilter_t<is_unboxed_val, nonconst_graph_tup>; // non-varargs
-    using var_args = TupFilter_t<is_boxed_val, noref_args_tup>; // varargs
 
-    using input_tuple = TupFilter_t<is_const, fixed_args>; // the inputs as real types
-    using output_tuple = TupFilter_t<is_not_const, fixed_args>; // the outputs as real types
+    // extract 'Graph const &'
+    using const_graph_tup = ArgTupFilter_t<OpArgCategory::graph_ref, Args...>; // reference to graph?
+
+    using input_tuple = ArgTupFilter_t<OpArgCategory::tensor_in, Args...>; // the inputs as real types
+    using output_tuple = ArgTupFilter_t<OpArgCategory::tensor_out, Args...>; // the outputs as real types
+    using var_input_tuple = ArgTupFilter_t<OpArgCategory::vararg_in, Args...>; // variadic input tuple
+    using var_output_tuple = ArgTupFilter_t<OpArgCategory::vararg_out, Args...>; // variadic output tuple
+
     using input_ptr_tuple = TupMap_t<std::add_pointer_t, input_tuple>; // The inputs as pointers
     using output_ptr_tuple = TupMap_t<std::add_pointer_t,
                                       output_tuple>; // the outputs as pointers
@@ -252,15 +335,6 @@ template <typename R, typename... Args> struct ArgsTuples<R(Args...)> {
     using graph_ptr_tuple = TupMap_t<std::add_pointer_t,
                                      const_graph_tup>; // the graph as pointer
 
-    using var_input_tuple = TupFilter_t<is_boxed_const, var_args>; // variadic input tuple
-    using var_output_tuple = TupFilter_t<is_boxed_nonconst, var_args>; // variadic output tuple
-
-    //using output_unboxed_tuple = TupFilter_t<is_unboxed_val,output_tuple>;				// the unboxed ones
-    //using input_unboxed_tuple = TupFilter_t<is_unboxed_val,input_tuple>;				// the unboxed ones
-    //using output_boxed_tuple = TupFilter_t<is_boxed_val,output_tuple>;				// the unboxed ones
-    //using input_boxed_tuple = TupFilter_t<is_boxed_val,input_tuple>;				// the unboxed ones
-    //using input_unboxed_ptr_tuple = TupMap_t<std::add_pointer_t,input_unboxed_tuple>;
-    //using output_unboxed_ptr_tuple = TupMap_t<std::add_pointer_t,output_unboxed_tuple>;
     static constexpr size_t n_inputs = std::tuple_size<input_tuple>::value; // number of inputs
     static constexpr size_t n_outputs = std::tuple_size<output_tuple>::value; // number of outputs
     static constexpr bool has_graph = (std::tuple_size<const_graph_tup>::value > 0); // does it have a graph operand?
